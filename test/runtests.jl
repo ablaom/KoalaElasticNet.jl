@@ -17,9 +17,9 @@ showall(elastic)
 elasticM = SupervisedMachine(elastic, X, y, train)
 
 fit!(elasticM, train)
+showall(elasticM)
 
 rpt = elasticM.report
-showall(rpt)
 
 m = rpt[:loglambdaopt]
 delta = rpt[:loglambdaopt_stde]

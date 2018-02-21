@@ -4,11 +4,12 @@ module KoalaElasticNet
 export ElasticNetRegressor
 
 # needed in this module:
-import Koala: Regressor, BaseType, keys_ordered_by_values
+import Koala: Regressor, BaseType, keys_ordered_by_values, SupervisedMachine, params
 import KoalaTransforms: HotEncodingScheme, BoxCoxScheme
 import KoalaTransforms: UnivariateStandardizationScheme, UnivariateBoxCoxScheme
 import Lasso
 import DataFrames: AbstractDataFrame, DataFrame
+import UnicodePlots
 
 # to be extended (but not explicitly rexported):
 import Koala: setup, fit, predict
@@ -56,7 +57,7 @@ end
 
 ## Model type definitions
 
-mutable struct LinearPredictor
+mutable struct LinearPredictor <: BaseType
     intercept::Float64
     coefs::SparseVector{Float64,Int64}
 end
@@ -137,6 +138,30 @@ function coef_info(predictor::LinearPredictor, features)
         coef_given_index[index]
     end
     return df
+end
+
+# `showall` method for `ElasticNetRegressor` machines:
+function Base.showall(stream::IO,
+                      mach::SupervisedMachine{LinearPredictor, ElasticNetRegressor})
+    show(stream, mach)
+    println(stream)
+    if isdefined(mach,:report) && :feature_importance_curve in keys(mach.report)
+        features, importance = mach.report[:feature_importance_curve]
+        plt = UnicodePlots.barplot(features, importance,
+              title="Feature importance (coefs of linear predictor)")
+    end
+    dict = params(mach)
+    report_items = sort(collect(keys(dict[:report])))
+    dict[:report] = "Dict with keys: $report_items"
+    dict[:Xt] = string(typeof(mach.Xt), " of shape ", size(mach.Xt))
+    dict[:yt] = string(typeof(mach.yt), " of shape ", size(mach.yt))
+    delete!(dict, :cache)
+    showall(stream, dict)
+    println(stream, "\nModel detail:")
+    showall(stream, mach.model)
+    if isdefined(mach,:report) && :feature_importance_curve in keys(mach.report)
+        show(stream, plt)
+    end
 end
 
 mutable struct Scheme_X <: BaseType
