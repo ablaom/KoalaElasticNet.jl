@@ -4,15 +4,15 @@ module KoalaElasticNet
 export ElasticNetRegressor
 
 # needed in this module:
-import Koala: Regressor, BaseType
+import Koala: Regressor, BaseType, keys_ordered_by_values
 import KoalaTransforms: HotEncodingScheme, BoxCoxScheme
 import KoalaTransforms: UnivariateStandardizationScheme, UnivariateBoxCoxScheme
 import Lasso
-import DataFrames: AbstractDataFrame
+import DataFrames: AbstractDataFrame, DataFrame
 
 # to be extended (but not explicitly rexported):
 import Koala: setup, fit, predict
-import Koala: get_metadata, get_scheme_X, get_scheme_y, transform, inverse_transform
+import Koala: get_scheme_X, get_scheme_y, transform, inverse_transform
 
 # development only
 # using ADBUtilities
@@ -110,10 +110,40 @@ ElasticNetRegressor(;lambda=0.0, n_lambdas::Int=100,
                                             lambda_min_ratio, n_folds, boxcox_inputs,
                                             boxcox, shift, drop_last)
 
+# Following returns a `DataFrame` with three columns:
+#
+# column name | description
+# :-----------|:-------------------------------------------------
+# `:index`    | index of a feature used to train `predictor`
+# `:feature`  | corresponding feature label provided by `features`
+# `:coef`     | coefficient for that feature in the predictor
+#
+# The rows are ordered by the absolute value of the coefficients. If
+# `rgs` is unfitted, an error is returned.
+function coef_info(predictor::LinearPredictor, features)
+    coef_given_index = Dict{Int, Float64}()
+    abs_coef_given_index = Dict{Int, Float64}()
+    v = predictor.coefs # SparseVector
+    for k in eachindex(v.nzval)
+        coef_given_index[v.nzind[k]] = v.nzval[k]
+        abs_coef_given_index[v.nzind[k]] = abs(v.nzval[k])
+    end
+    df = DataFrame()
+    df[:index] = reverse(keys_ordered_by_values(abs_coef_given_index))
+    df[:feature] = map(df[:index]) do index
+        features[index]
+    end
+    df[:coef] = map(df[:index]) do index
+        coef_given_index[index]
+    end
+    return df
+end
+
 mutable struct Scheme_X <: BaseType
     boxcox::BoxCoxScheme
     hot::HotEncodingScheme
     features::Vector{Symbol}
+    spawned_features::Vector{Symbol} # ie after one-hot encoding
 end
     
 function get_scheme_X(model::ElasticNetRegressor, X::AbstractDataFrame,
@@ -137,12 +167,14 @@ function get_scheme_X(model::ElasticNetRegressor, X::AbstractDataFrame,
         boxcox = BoxCoxScheme(X, shift=model.shift)
         X = transform(boxcox, X)
     else
-        boxcox = BoxCoxScheme() 
+        boxcox = BoxCoxScheme()
     end
 
     info("Determining one-hot encodings for inputs.")
     hot =  HotEncodingScheme(X, drop_last=model.drop_last)
-    return Scheme_X(boxcox, hot, features)
+    spawned_features = hot.spawned_features    
+
+    return Scheme_X(boxcox, hot, features, spawned_features)
 
 end
 
@@ -208,13 +240,10 @@ struct Cache <: BaseType
     y::Vector{Float64}
     features::Vector{Symbol}
 
-    Cache(X, y, features) = new(X, y, features)
-    
 end
 
-setup(model::ElasticNetRegressor, X, y, features, parallel, verbosity) =
-    Cache(X, y, features)
-
+setup(model::ElasticNetRegressor, X, y, scheme_X, parallel, verbosity) =
+    Cache(X, y, scheme_X.spawned_features)
 
 # The core elastic net algorithm does not fit to model parameters but
 # fits a *sequence* (aka path) of predictors corresponding to a
@@ -409,6 +438,23 @@ function fit(model::ElasticNetRegressor, cache, add, parallel, verbosity)
     intercept =  predictors.b0[end]
     coefs = getcol(predictors.coefs, 0) # 0 gets last column
     predictor = LinearPredictor(intercept, coefs)
+
+    # report on the relative strength of each feature in the predictor:
+    cinfo = coef_info(predictor, cache.features) # a DataFrame object
+    u = Symbol[]
+    v = Float64[]
+    for i in 1:size(cinfo, 1)
+        feature, coef = (cinfo[i, :feature], cinfo[i, :coef])
+        coef = floor(1000*coef)/1000
+        if coef < 0
+            label = string(feature, " (-)")
+        else
+            label = string(feature, " (+)")
+        end
+        push!(u, label)
+        push!(v, abs(coef))
+    end
+    report[:feature_importance_curve] = u, v
 
     return predictor, report, cache
     
