@@ -5,15 +5,17 @@ export ElasticNetRegressor
 
 # needed in this module:
 import Koala: Regressor, BaseType, keys_ordered_by_values, SupervisedMachine, params
-import KoalaTransforms: HotEncodingScheme, BoxCoxScheme
-import KoalaTransforms: UnivariateStandardizationScheme, UnivariateBoxCoxScheme
+import Koala: Transformer
+import KoalaTransforms: OneHotEncoder, OneHotEncoderScheme
+import KoalaTransforms: BoxCoxTransformer, BoxCoxTransformerScheme
+import KoalaTransforms: UnivariateStandardizer, UnivariateBoxCoxTransformer
 import Lasso
 import DataFrames: AbstractDataFrame, DataFrame
 import UnicodePlots
 
 # to be extended (but not explicitly rexported):
 import Koala: setup, fit, predict
-import Koala: get_scheme_X, get_scheme_y, transform, inverse_transform
+import Koala: get_transformer_X, get_transformer_y, transform, inverse_transform
 
 # development only
 # using ADBUtilities
@@ -57,59 +59,10 @@ end
 
 ## Model type definitions
 
-mutable struct LinearPredictor <: BaseType
+struct LinearPredictor <: BaseType
     intercept::Float64
     coefs::SparseVector{Float64,Int64}
 end
-
-mutable struct ElasticNetRegressor <: Regressor{LinearPredictor}
-
-    lambda::Float64
-    n_lambdas::Int
-    alpha::Float64
-    standardize::Bool   # whether to standardize targets
-    max_n_coefs::Int
-    criterion::Symbol
-    lambda_min_ratio::Float64
-
-    # for cv-optimizing lambda:
-    n_folds::Int
-
-    # controlling transformations:
-    boxcox_inputs::Bool # whether to apply Box-Cox transformations to the input patterns
-    boxcox::Bool # whether to apply Box-Cox transformations to the target (before any standarization)
-    shift::Bool # whether to shift away from zero in Box-Cox transformations
-    drop_last::Bool # for hot-encoding, which is always performed
-    
-    function ElasticNetRegressor(lambda, n_lambdas::Int, alpha, standardize::Bool, 
-                                 max_n_coefs::Int, criterion::Symbol,
-                                 lambda_min_ratio, n_folds::Int, boxcox_inputs,
-                                 boxcox, shift, drop_last)
-        if alpha <= 0.0 || alpha > 1.0
-            if alpha == 0.0
-                throw(Base.error("alpha=0 dissallowed."*
-                                 " Consider ridge regression instead."))
-            end
-            throw(DomainError)
-        end
-        return new(lambda, n_lambdas, alpha, standardize, max_n_coefs, criterion,
-                  lambda_min_ratio, n_folds, boxcox_inputs, boxcox, shift, drop_last)
-    end
-
-end
-
-# lazy keywork constructor
-ElasticNetRegressor(;lambda=0.0, n_lambdas::Int=100,
-                    alpha=1.0, standardize::Bool=true, 
-                    max_n_coefs::Int=0, criterion::Symbol=:coef,
-                    lambda_min_ratio=0.0, n_folds::Int=9,boxcox_inputs=false,
-                    boxcox=false, shift=true, 
-                    drop_last=false) = 
-                        ElasticNetRegressor(lambda, n_lambdas,
-                                            alpha, standardize,
-                                            max_n_coefs, criterion,
-                                            lambda_min_ratio, n_folds, boxcox_inputs,
-                                            boxcox, shift, drop_last)
 
 # Following returns a `DataFrame` with three columns:
 #
@@ -140,6 +93,56 @@ function coef_info(predictor::LinearPredictor, features)
     return df
 end
 
+mutable struct ElasticNetRegressor <: Regressor{LinearPredictor}
+
+    lambda::Float64
+    n_lambdas::Int
+    alpha::Float64
+    max_n_coefs::Int
+    criterion::Symbol
+    lambda_min_ratio::Float64
+
+    # for cv-optimizing lambda:
+    n_folds::Int
+
+    # controlling transformations:
+    boxcox_inputs::Bool # whether to apply Box-Cox transformations to the input patterns
+    boxcox::Bool # whether to apply Box-Cox transformations to the target (before any standarization)
+    standardize::Bool # whether to standardize targets
+    shift::Bool # whether to shift away from zero in Box-Cox transformations
+    drop_last::Bool # for hot-encoding, which is always performed
+    
+    function ElasticNetRegressor(lambda, n_lambdas::Int, alpha, 
+                                 max_n_coefs::Int, criterion::Symbol,
+                                 lambda_min_ratio, n_folds::Int, boxcox_inputs::Bool,
+                                 boxcox::Bool, standardize::Bool,
+                                 shift::Bool, drop_last::Bool)
+        if alpha <= 0.0 || alpha > 1.0
+            if alpha == 0.0
+                throw(Base.error("alpha=0 dissallowed."*
+                                 " Consider ridge regression instead."))
+            end
+            throw(DomainError)
+        end
+        return new(lambda, n_lambdas, alpha, max_n_coefs, criterion,
+                  lambda_min_ratio, n_folds, boxcox_inputs, boxcox, standardize, shift, drop_last)
+    end
+
+end
+
+# lazy keywork constructor
+ElasticNetRegressor(;lambda=0.0, n_lambdas::Int=100,
+                    alpha=1.0,
+                    max_n_coefs::Int=0, criterion::Symbol=:coef,
+                    lambda_min_ratio=0.0, n_folds::Int=9, boxcox_inputs::Bool=false,
+                    boxcox::Bool=false,  standardize::Bool=true, shift::Bool=true, 
+                    drop_last::Bool=false) = 
+                        ElasticNetRegressor(lambda, n_lambdas,
+                                            alpha,
+                                            max_n_coefs, criterion,
+                                            lambda_min_ratio, n_folds, boxcox_inputs,
+                                            boxcox, standardize, shift, drop_last)
+
 # `showall` method for `ElasticNetRegressor` machines:
 function Base.showall(stream::IO,
                       mach::SupervisedMachine{LinearPredictor, ElasticNetRegressor})
@@ -164,18 +167,34 @@ function Base.showall(stream::IO,
     end
 end
 
-mutable struct Scheme_X <: BaseType
-    boxcox::BoxCoxScheme
-    hot::HotEncodingScheme
+struct Transformer_X <: Transformer
+    boxcox_inputs::Bool # whether to apply Box-Cox transformations to the input patterns
+    shift::Bool # do we shift away from zero in Box-Cox transformations?
+    drop_last::Bool # do we drop the last slot in the one-hot-encoding?
+end
+
+struct Transformer_y <: Transformer
+    boxcox::Bool # do we apply Box-Cox transforms to target (before any standarization)?
+    standardize::Bool # do we standardize targets?
+    shift::Bool # do we shift away from zero in Box-Cox transformations?
+end
+
+struct Scheme_X <: BaseType
+    boxcox::BoxCoxTransformerScheme
+    hot::OneHotEncoderScheme
     features::Vector{Symbol}
     spawned_features::Vector{Symbol} # ie after one-hot encoding
 end
-    
-function get_scheme_X(model::ElasticNetRegressor, X::AbstractDataFrame,
-                      train_rows, features) 
-    
-    X = X[train_rows, features]
 
+struct Scheme_y <: BaseType
+    boxcox::Tuple{Float64,Float64}
+    standard::Tuple{Float64,Float64}
+end
+
+function fit(transformer::Transformer_X, X::AbstractDataFrame, parallel, verbosity)
+
+    features = names(X)
+    
     # check `X` has only string and real eltypes:
     eltypes_ok = true
     for ft in features
@@ -187,84 +206,93 @@ function get_scheme_X(model::ElasticNetRegressor, X::AbstractDataFrame,
     eltypes_ok || error("Only AbstractString and Real eltypes allowed in DataFrame.")
 
     # fit Box-Cox transformation:
-    if model.boxcox_inputs
+    if transformer.boxcox_inputs
         info("Computing input Box-Cox transformations.")
-        boxcox = BoxCoxScheme(X, shift=model.shift)
-        X = transform(boxcox, X)
+        boxcox_transformer = BoxCoxTransformer(shift=transformer.shift)
+        boxcox = fit(boxcox_transformer, X, true, verbosity - 1)
+        X = transform(boxcox_transformer, boxcox, X)
     else
-        boxcox = BoxCoxScheme()
+        boxcox = BoxCoxTransformerScheme() # null scheme
     end
 
     info("Determining one-hot encodings for inputs.")
-    hot =  HotEncodingScheme(X, drop_last=model.drop_last)
+    hot_transformer = OneHotEncoder(drop_last=transformer.drop_last)
+    hot =  fit(hot_transformer, X, true, verbosity - 1) 
     spawned_features = hot.spawned_features    
 
     return Scheme_X(boxcox, hot, features, spawned_features)
 
 end
 
-function transform(model::ElasticNetRegressor, scheme_X, X::AbstractDataFrame)
+function transform(transformer::Transformer_X, scheme_X, X::AbstractDataFrame)
     issubset(Set(scheme_X.features), Set(names(X))) ||
         error("DataFrame feature incompatibility encountered.")
     X = X[scheme_X.features]
-    if model.boxcox_inputs
-        X = transform(scheme_X.boxcox, X)
+    if transformer.boxcox_inputs
+        boxcox_transformer = BoxCoxTransformer(shift=transformer.shift)
+        X = transform(boxcox_transformer, scheme_X.boxcox, X)
     end
-    X = transform(scheme_X.hot, X)
+    hot_transformer = OneHotEncoder(drop_last=transformer.drop_last)
+    X = transform(hot_transformer, scheme_X.hot, X)
     return convert(Array{Float64}, X)
 end
 
-mutable struct Scheme_y <: BaseType
-    boxcox::UnivariateBoxCoxScheme
-    standard::UnivariateStandardizationScheme
-end
+function fit(transformer::Transformer_y, y, parallel, verbosity)
 
-function get_scheme_y(model::ElasticNetRegressor, y, test_rows)
-    y = y[test_rows]
-    if model.boxcox
+    if transformer.boxcox
         info("Computing Box-Cox transformations for target.")
-        boxcox = UnivariateBoxCoxScheme(y, shift=model.shift)
-        y = transform(boxcox, y)
+        boxcox_transformer = UnivariateBoxCoxTransformer(shift=transformer.shift)
+        boxcox = fit(boxcox_transformer, y, true, verbosity - 1)
+        y = transform(boxcox_transformer, boxcox, y)
     else
-        boxcox = UnivariateBoxCoxScheme()
+        boxcox = (0.0, 0.0) # null scheme
     end
-    if model.standardize
+    if transformer.standardize
         info("Computing target standardization.")
-        standard = UnivariateStandardizationScheme(y)
+        standard_transformer = UnivariateStandardizer()
+        standard = fit(standard_transformer, y, true, verbosity - 1)
     else
-        standard = UnivariateStandardizationScheme()
+        standard = (0.0, 1.0) # null scheme
     end
     return Scheme_y(boxcox, standard)
 end 
-                          
-function transform(model::ElasticNetRegressor, scheme_y , y::Vector{T} where T <: Real)
-    if model.boxcox
-        y = transform(scheme_y.boxcox, y)
+
+function transform(transformer::Transformer_y, scheme_y, y)
+    if transformer.boxcox
+        boxcox_transformer = UnivariateBoxCoxTransformer(shift=transformer.shift)
+        y = transform(boxcox_transformer, scheme_y.boxcox, y)
     end
-    if model.standardize
-        y = transform(scheme_y.standard, y)
+    if transformer.standardize
+        standard_transformer = UnivariateStandardizer()
+        y = transform(standard_transformer, scheme_y.standard, y)
     end 
     return y
 end 
 
-function inverse_transform(model::ElasticNetRegressor, scheme_y, yt::AbstractVector)
-    y = inverse_transform(scheme_y.standard, yt)
-    if model.boxcox
-        return inverse_transform(scheme_y.boxcox, y)
-    else
-        return y
+function inverse_transform(transformer::Transformer_y, scheme_y, y)
+    if transformer.standardize
+        standard_transformer = UnivariateStandardizer()
+        y = inverse_transform(standard_transformer, scheme_y.standard, y)
     end
-end 
+    if transformer.boxcox
+        boxcox_transformer = UnivariateBoxCoxTransformer(shift=transformer.shift)
+        y = inverse_transform(boxcox_transformer, scheme_y.boxcox, y)
+    end
+    return y
+end
+
+get_transformer_X(model::ElasticNetRegressor) =
+    Transformer_X(model.boxcox_inputs, model.shift, model.drop_last)
+get_transformer_y(model::ElasticNetRegressor) =
+    Transformer_y(model.boxcox, model.standardize, model.shift)
+    
 
 # Note: For readability we now use `X` and `y` in place of `Xt` and `yt`
 
 struct Cache <: BaseType
-
-    # data: 
     X::Matrix{Float64}
     y::Vector{Float64}
     features::Vector{Symbol}
-
 end
 
 setup(model::ElasticNetRegressor, X, y, scheme_X, parallel, verbosity) =

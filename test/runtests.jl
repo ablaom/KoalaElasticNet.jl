@@ -9,8 +9,7 @@ y = log.(y)
 const train, test = splitrows(eachindex(y), 0.7); # 70:30 split
 
 # Instantiate a model:
-elastic = ElasticNetRegressor(standardize=true,
-                              boxcox_inputs=true, lambda_min_ratio=1e-9)
+elastic = ElasticNetRegressor(boxcox_inputs=true, lambda_min_ratio=1e-9)
 showall(elastic)
 
 # Build a machine (excuding :YearRemodAdd):
@@ -31,7 +30,7 @@ alphas = linspace(0.8,1.0,15)
 # tune using cross-validation
 alphas, lambdas, rmserrors = @curve α alphas λ lambdas begin
     elastic.alpha, elastic.lambda = α, λ
-    mean(cv(elasticM, eachindex(y), parallel=true, n_folds=9, verbosity=0))
+    mean(cv(elasticM, train, parallel=true, n_folds=9, verbosity=0))
 end
 
 j, k = ind2sub(size(rmserrors), indmin(rmserrors))
