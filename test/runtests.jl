@@ -12,8 +12,11 @@ const train, test = splitrows(eachindex(y), 0.7); # 70:30 split
 elastic = ElasticNetRegressor(boxcox_inputs=true, lambda_min_ratio=1e-9)
 showall(elastic)
 
+tX = default_transformer_X(elastic)
+tX.boxcox = true
+
 # Build a machine (excuding :YearRemodAdd):
-elasticM = SupervisedMachine(elastic, X, y, train)
+elasticM = Machine(elastic, X, y, train, transformer_X=tX)
 
 fit!(elasticM, train)
 showall(elasticM)
