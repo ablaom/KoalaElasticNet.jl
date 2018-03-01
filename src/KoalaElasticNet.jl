@@ -166,9 +166,9 @@ function Base.showall(stream::IO,
 end
 
 default_transformer_X(model::ElasticNetRegressor) =
-    KoalaTransforms.TransformerForLinearModels_X()
+    KoalaTransforms.DataFrameToArrayTransformer()
 default_transformer_y(model::ElasticNetRegressor) =
-    KoalaTransforms.TransformerForLinearModels_y()
+    KoalaTransforms.RegressionTargetTransformer()
     
 # Note: For readability we now use `X` and `y` in place of `Xt` and `yt`
 
