@@ -103,18 +103,9 @@ mutable struct ElasticNetRegressor <: Regressor{LinearPredictor}
     # for cv-optimizing lambda:
     n_folds::Int
 
-    # controlling transformations:
-    boxcox_inputs::Bool # whether to apply Box-Cox transformations to the input patterns
-    boxcox::Bool # whether to apply Box-Cox transformations to the target (before any standarization)
-    standardize::Bool # whether to standardize targets
-    shift::Bool # whether to shift away from zero in Box-Cox transformations
-    drop_last::Bool # for hot-encoding, which is always performed
-    
     function ElasticNetRegressor(lambda, n_lambdas::Int, alpha, 
                                  max_n_coefs::Int, criterion::Symbol,
-                                 lambda_min_ratio, n_folds::Int, boxcox_inputs::Bool,
-                                 boxcox::Bool, standardize::Bool,
-                                 shift::Bool, drop_last::Bool)
+                                 lambda_min_ratio, n_folds::Int)
         if alpha <= 0.0 || alpha > 1.0
             if alpha == 0.0
                 throw(Base.error("alpha=0 dissallowed."*
@@ -123,7 +114,7 @@ mutable struct ElasticNetRegressor <: Regressor{LinearPredictor}
             throw(DomainError)
         end
         return new(lambda, n_lambdas, alpha, max_n_coefs, criterion,
-                  lambda_min_ratio, n_folds, boxcox_inputs, boxcox, standardize, shift, drop_last)
+                  lambda_min_ratio, n_folds)
     end
 
 end
@@ -132,14 +123,11 @@ end
 ElasticNetRegressor(;lambda=0.0, n_lambdas::Int=100,
                     alpha=1.0,
                     max_n_coefs::Int=0, criterion::Symbol=:coef,
-                    lambda_min_ratio=0.0, n_folds::Int=9, boxcox_inputs::Bool=false,
-                    boxcox::Bool=false,  standardize::Bool=true, shift::Bool=true, 
-                    drop_last::Bool=false) = 
+                    lambda_min_ratio=0.0, n_folds::Int=9) = 
                         ElasticNetRegressor(lambda, n_lambdas,
                                             alpha,
                                             max_n_coefs, criterion,
-                                            lambda_min_ratio, n_folds, boxcox_inputs,
-                                            boxcox, standardize, shift, drop_last)
+                                            lambda_min_ratio, n_folds)
 
 # `showall` method for `ElasticNetRegressor` machines:
 function Base.showall(stream::IO,

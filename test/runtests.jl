@@ -9,15 +9,19 @@ y = log.(y)
 const train, test = split(eachindex(y), 0.7); # 70:30 split
 
 # Instantiate a model:
-elastic = ElasticNetRegressor(boxcox_inputs=true, lambda_min_ratio=1e-9)
+elastic = ElasticNetRegressor(lambda_min_ratio=1e-9)
 showall(elastic)
 
+# Change the default transformer behaviour to include Box-Cox
+# transformations on input features:
 tX = default_transformer_X(elastic)
+showall(tX)
 tX.boxcox = true
 
-# Build a machine (excuding :YearRemodAdd):
-elasticM = Machine(elastic, X, y, train, transformer_X=tX)
+# Build a machine that uses the modified transformer:
+elasticM = Machine(elastic, X, y, train, transformer_X=tX, verbosity=3)
 
+# Train the model:
 fit!(elasticM, train)
 showall(elasticM)
 
@@ -36,11 +40,13 @@ alphas, lambdas, rmserrors = @curve α alphas λ lambdas begin
     mean(cv(elasticM, train, parallel=true, n_folds=9, verbosity=0))
 end
 
+# set regularization parameters to optimal values:
 j, k = ind2sub(size(rmserrors), indmin(rmserrors))
-
 elastic.alpha, elastic.lambda = alphas[j], lambdas[k]
 
-fit!(elasticM, train)
+# retrain:
+fit!(elasticM)
 
+# report score:
 score = err(elasticM, test)
 @test score < 0.14 && score >0.12 
