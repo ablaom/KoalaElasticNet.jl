@@ -1,8 +1,10 @@
 # KoalaElasticNet
 
 
-Elastic Net Regressor for use in the Koala machine learning
-environment. A Koala wrap of Simon Kornblith's pure Julia implementation; see:
+Elastic Net Regressor for use in the
+[Koala](https://github.com/ablaom/Koala.jl) machine learning
+environment. A Koala wrap of Simon Kornblith's pure Julia
+implementation; see:
 
 [1] http://lassojl.readthedocs.io/en/latest/lasso.html
 

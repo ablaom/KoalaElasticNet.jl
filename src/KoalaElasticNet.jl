@@ -15,7 +15,7 @@ import UnicodePlots
 import Koala: setup, fit, predict
 import Koala: default_transformer_X, default_transformer_y, transform, inverse_transform
 
-# development only
+# development only:
 # using ADBUtilities
 
 ## Helpers
